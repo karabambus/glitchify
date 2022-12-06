@@ -1,3 +1,5 @@
+//Bugs to fix we are losing data somwhere probaly during conversion (maybe long double for output stuff and input)
+
 #include <iostream>
 #include <sndfile.h>
 #include <opencv2/opencv.hpp>
@@ -17,17 +19,17 @@ class LowPassFilter
 {
 public:
     // Constructor
-    LowPassFilter(float cutoff)
+    LowPassFilter(double cutoff)
     {
         m_cutoff = cutoff;
         m_y1 = 0;
     }
 
     // Processes a sample of the input signal and returns the filtered sample
-    float process(float x0)
+    double process(double x0)
     {
         // Calculate the filtered sample using the first-order low-pass filter formula
-        float y0 = x0 * (1 - m_cutoff) + m_y1 * m_cutoff;
+        double y0 = x0 * (1 - m_cutoff) + m_y1 * m_cutoff;
 
         // Update the state variables
         m_y1 = y0;
@@ -37,29 +39,79 @@ public:
 
 private:
     // State variables
-    float m_cutoff;
-    float m_y1;
+    double m_cutoff;
+    double m_y1;
 };
+
+tuple<double*, double*, double*> FillRemainingPixels(const double* inputBlues, const double* inputGreens, const double* inputReds, double* outputBlues, double* outputGreens, double* outputReds, int effectStart, int effectEnd, int numSamples) {
+
+    for (int i = 0; i < effectStart; i++) {
+        outputBlues[i] = inputBlues[i];
+        outputGreens[i] = inputGreens[i];
+        outputReds[i] = inputReds[i];
+    }
+
+    for (int i = effectEnd; i < numSamples; i++) {
+        outputBlues[i] = inputBlues[i];
+        outputGreens[i] = inputGreens[i];
+        outputReds[i] = inputReds[i];
+    }
+
+    return make_tuple(outputBlues, outputGreens, outputReds);
+}
+
+
+// This function applies the change pitch effect to the input data and returns the processed data array
+tuple<double*, double*, double*> changePitch(const double* Blues, const double* Greens, const double* Reds, int numSamples, double pitchShift, int effectStart, int effectEnd)
+{
+    // Create the output sound data array
+    double* outputBlues = new double[numSamples];
+    double* outputGreens = new double[numSamples];
+    double* outputReds = new double[numSamples];
+
+    // Calculate the pitch shift factor
+    double pitchShiftFactor = pow(2.0, pitchShift / 12.0);
+
+    // Iterate over the input sound data and apply the change pitch effect
+    for (int i = effectStart; i < effectEnd; i++)
+    {
+        // Calculate the output sample index, using the pitch shift factor
+        int outputIndex = (int)(pitchShiftFactor * i);
+
+        // If the output index is within the range of the output array, set the sample value
+        if (outputIndex < numSamples)
+        {
+            outputBlues[i] = Blues[outputIndex];
+            outputGreens[i] = Greens[outputIndex];
+            outputReds[i] = Reds[outputIndex];
+        }
+    }
+    //fill remaining pixels
+    tie(outputBlues, outputGreens, outputReds) = FillRemainingPixels(Blues, Greens, Reds, outputBlues, outputGreens, outputReds, effectStart, effectEnd, numSamples);
+
+    return make_tuple(outputBlues, outputGreens, outputReds);
+}
+
 
 
 // This function applies the bass boost effect to the input data and returns the processed data array
-tuple <short*, short*, short*> applyBassBoost(const short* Blues, const short* Greens, const short* Reds, int numSamples, float boost, float cutoff)
+tuple <double*, double*, double*> applyBassBoost(const double* Blues, const double* Greens, const double* Reds, int numSamples, double boost, double cutoff, int effectStart, int effectEnd)
 {
     // Create the output sound data array
-    short* outputBlues = new short[numSamples];
-    short* outputGreens = new short[numSamples];
-    short* outputReds = new short[numSamples];
+    double* outputBlues = new double[numSamples];
+    double* outputGreens = new double[numSamples];
+    double* outputReds = new double[numSamples];
 
     // Create the low-pass filter
     LowPassFilter filter(cutoff);
 
     // Iterate over the input data and apply the bass boost effect
-    for (int i = 0; i < numSamples; i++)
+    for (int i = effectStart; i < effectEnd; i++)
     {
         // Filter the input signal using the low-pass filter
-        short filteredBlue = filter.process(Blues[i]);
-        short filteredGreen = filter.process(Greens[i]);
-        short filteredRed = filter.process(Reds[i]);
+        double filteredBlue = filter.process(Blues[i]);
+        double filteredGreen = filter.process(Greens[i]);
+        double filteredRed = filter.process(Reds[i]);
 
         // Apply the bass boost effect by boosting the low frequencies in the filtered signal
         // using the boost parameter to control the amount of boost applied
@@ -68,28 +120,30 @@ tuple <short*, short*, short*> applyBassBoost(const short* Blues, const short* G
         outputReds[i] = filteredRed + boost * filteredRed;
     }
 
+    tie(outputBlues, outputGreens, outputReds) = FillRemainingPixels(Blues, Greens, Reds, outputBlues, outputGreens, outputReds, effectStart, effectEnd, numSamples);
+
     return make_tuple(outputBlues, outputGreens, outputReds);
 }
 
 
 
 // This function applies the phaser effect to the input data and returns the processed data array
-tuple <short*, short*, short*> applyPhaser(const short* Blues, const short* Greens, const short* Reds, int numSamples, int delay, float feedback, float wetDryMix, float lowPassCutoff, float oscillatorRate, float frequencyRange, float phaseShiftDepth, int waveformType)
+tuple <double*, double*, double*> applyPhaser(const double* Blues, const double* Greens, const double* Reds, int numSamples, int delay, double feedback, double wetDryMix, double lowPassCutoff, double oscillatorRate, double frequencyRange, double phaseShiftDepth, int waveformType, int effectStart, int effectEnd)
 {
     // Create the output sound data array
-    short* outputBlues = new short[numSamples];
-    short* outputGreens = new short[numSamples];
-    short* outputReds = new short[numSamples];
+    double* outputBlues = new double[numSamples];
+    double* outputGreens = new double[numSamples];
+    double* outputReds = new double[numSamples];
 
     // Initialize the phase shift oscillator and feedback accumulator
-    float lowPass = 0.0f;
-    float oscillator = 0.0f;
-    short feedbackBlue = 0;
-    short feedbackGreen = 0;
-    short feedbackRed = 0;
+    double lowPass = 0.0f;
+    double oscillator = 0.0f;
+    double feedbackBlue = 0;
+    double feedbackGreen = 0;
+    double feedbackRed = 0;
 
     // Iterate over the input sound data and apply the phaser effect
-    for (int i = 0; i < numSamples; i++)
+    for (int i = effectStart; i < effectEnd; i++)
     {
         // Calculate the sample index to use for the phaser effect
         int phaseShiftIndex = i - delay;
@@ -145,31 +199,39 @@ tuple <short*, short*, short*> applyPhaser(const short* Blues, const short* Gree
             feedbackRed = feedback * outputReds[i] * sin(oscillator) * frequencyRange * phaseShiftDepth;
             break;
         }
-        
+
     }
+    //fill remaining pixels
+    tie(outputBlues, outputGreens, outputReds) = FillRemainingPixels(Blues, Greens, Reds, outputBlues, outputGreens, outputReds, effectStart, effectEnd, numSamples);
+
     return make_tuple(outputBlues, outputGreens, outputReds);
 }
 
 
 
 // This function applies the echo effect to the input data and returns the processed data array
-tuple <short*, short*, short*> applyEcho(const short* Blues, const short* Greens, const short* Reds, int numSamples, int delay, float feedback, float dryWetMix)
+tuple <double*, double*, double*> applyEcho(const double* Blues, const double* Greens, const double* Reds, int numSamplesEffect, double feedback, double dryWetMix, double decay, double delayTime, int effectStart, int effectEnd, int numSamples)
 {
-    // Create the output sound data array
-    short* outputBlues = new short[numSamples];
-    short* outputGreens = new short[numSamples];
-    short* outputReds = new short[numSamples];
+    // Convert the delay time to the number of samples to delay by
+    int sampleRate = 44100;
+    double delayIncrement = 1.0f / sampleRate;
+    int delaySamples = (int)(delayTime / delayIncrement);
+
+    // Create the output data array
+    double* outputBlues = new double[numSamples];
+    double* outputGreens = new double[numSamples];
+    double* outputReds = new double[numSamples];
 
     // Initiliaze feedback accumulator
-    short feedbackBlue = 0;
-    short feedbackGreen = 0;
-    short feedbackRed = 0;
+    double feedbackBlue = 0;
+    double feedbackGreen = 0;
+    double feedbackRed = 0;
 
-    // Iterate over the input sound data and apply the echo effect
-    for (int i = 0; i < numSamples; i++)
+    // Iterate over the input data and apply the echo effect
+    for (int i = effectStart; i < effectEnd; i++)
     {
         // Calculate the sample index to use for the echo effect
-        int delayIndex = i - delay;
+        int delayIndex = i - delaySamples;
 
         // Check if the delay index is within the valid range of the input sound data
         if (delayIndex < 0)
@@ -183,17 +245,20 @@ tuple <short*, short*, short*> applyEcho(const short* Blues, const short* Greens
             delayIndex = numSamples - 1;
         }
 
+
         // Apply the echo effect by adding the delayed sample value and feedback to the current sample value
-        // and mixing the wet and dry signals based on the dryWetMix parameter
-        outputBlues[i] = (Blues[i] * (1.0f - dryWetMix)) + (Blues[delayIndex] + feedbackBlue) * dryWetMix;
-        outputGreens[i] = (Greens[i] * (1.0f - dryWetMix)) + (Greens[delayIndex] + feedbackGreen) * dryWetMix;
-        outputReds[i] = (Reds[i] * (1.0f - dryWetMix)) + (Reds[delayIndex] + feedbackRed) * dryWetMix;
+    // and mixing the wet and dry signals based on the dryWetMix parameter
+        outputBlues[i] = (Blues[i] * (1.0f - dryWetMix)) + (Blues[delayIndex] * decay + feedbackBlue) * dryWetMix;
+        outputGreens[i] = (Greens[i] * (1.0f - dryWetMix)) + (Greens[delayIndex] * decay + feedbackGreen) * dryWetMix;
+        outputReds[i] = (Reds[i] * (1.0f - dryWetMix)) + (Reds[delayIndex] * decay + feedbackRed) * dryWetMix;
 
         // Update the feedback accumulator
         feedbackBlue = feedback * outputBlues[i];
         feedbackGreen = feedback * outputGreens[i];
         feedbackRed = feedback * outputReds[i];
     }
+
+    tie(outputBlues, outputGreens, outputReds) = FillRemainingPixels(Blues, Greens, Reds, outputBlues, outputGreens, outputReds, effectStart, effectEnd, numSamples);
 
     return make_tuple(outputBlues, outputGreens, outputReds);
 }
@@ -212,15 +277,17 @@ Mat readImage(const string& filename)
 }
 
 // This function seperates blue, green, red pixels from the input image, and returns 3 data array
-tuple <short*, short*, short*> generateImageSamples(const Mat& image, int& numSamples)
+tuple <double*, double*, double*> generateDataArrays(const Mat& image, int& numSamples)
 {
     // Calculate the number of samples needed to represent each pixel in the input image
     numSamples = image.cols * image.rows;
 
     // Create the output data array
-    short* Blues = new short[numSamples];
-    short* greens = new short[numSamples];
-    short* reds = new short[numSamples];
+    double* blues = new double[numSamples];
+    double* greens = new double[numSamples];
+    double* reds = new double[numSamples];
+
+
 
     // Iterate over the input image pixels and generate output data
     for (int y = 0; y < image.rows; y++)
@@ -231,79 +298,99 @@ tuple <short*, short*, short*> generateImageSamples(const Mat& image, int& numSa
             Vec3b pixel = image.at<Vec3b>(y, x);
 
             // Map the pixel value to a sample value
-            short Blue = pixel[0];
-            short green = pixel[1];
-            short red = pixel[2];
+            double Blue = pixel[0];
+            double green = pixel[1];
+            double red = pixel[2];
 
             // Write the samples to the output data array
             for (int i = 0; i < red; i++)
             {
-                Blues[y * image.cols + x + i] = Blue;
+                blues[y * (image.cols) + x + i] = Blue;
             }
             for (int i = 0; i < Blue; i++)
             {
-                greens[y * image.cols + x + i] = green;
+                greens[y * (image.cols) + x + i] = green;
             }
             for (int i = 0; i < green; i++)
             {
-                reds[y * image.cols + x + i] = red;
+                reds[y * (image.cols) + x + i] = red;
             }
         }
     }
 
-      
 
-    return make_tuple(Blues, greens, reds);
+
+    return make_tuple(blues, greens, reds);
 }
 
-// This function applies the delay effect to the input data and returns the processed data array
-tuple <short*, short*, short*> applyDelay(const short* Blues, const short* Greens, const short* Reds, int numSamples, int delay, float feedback)
-{
-    // Create the output sound data array
-    short* outputBlues = new short[numSamples];
-    short* outputGreens = new short[numSamples];
-    short* outputReds = new short[numSamples];
 
-    //Initiliaze feedback accumulator
-    short feedbackBlue = 0;
-    short feedbackGreen = 0;
-    short feedbackRed = 0;
+// potreban je brzi algoritam kao fft, prekompleksno za meneda implentam
+//// this function applies the echo effect to the input data using a convolution kernel calculated using an exponential decay function, and returns the processed data array
+//tuple <double*, double*, double*> applyecho2(const double* blues, const double* greens, const double* reds, int numsamples, int delay, double decayfactor, double drywetmix)
+//{
+//    // create the output sound data array
+//    double* outputblues = new double[numsamples];
+//    double* outputgreens = new double[numsamples];
+//    double* outputreds = new double[numsamples];
+//
+//    // calculate the length of the convolution kernel
+//    int kernellength = delay + 1;
+//
+//    // create the convolution kernel using an exponential decay function
+//    double* kernel = new double[kernellength];
+//    kernel[0] = 1.0f; // initial impulse
+//    for (int i = 1; i < kernellength; i++)
+//    {
+//        kernel[i] = kernel[i - 1] * decayfactor; // exponential decay
+//    }
+//
+//    // iterate over the input sound data and apply the echo effect
+//    for (int i = 0; i < numsamples; i++)
+//    {
+//        // create temporary arrays to store the convolution output for each channel
+//        double* convolvedblue = new double[numsamples];
+//        double* convolvedgreen = new double[numsamples];
+//        double* convolvedred = new double[numsamples];
+//
+//        // apply the convolution operation to each channel using the kernel from the input
+//        for (int j = 0; j < kernellength; j++)
+//        {
+//            int delayindex = delay - i;
+//            // check if the delay index is within the valid range of the input sound data
+//            if (delayindex < 0)
+//            {
+//                // if the delay index is outside the range, set it to the first sample in the input data
+//                delayindex = 0;
+//            }
+//            else if (delayindex >= numsamples)
+//            {
+//                // if the delay index is outside the range, set it to the last sample in the input data
+//                delayindex = numsamples - 1;
+//            }
+//        if (delayindex >= 0 && delayindex < kernellength)
+//            {
+//                convolvedblue[i] += blues[delayindex] * kernel[j];
+//                convolvedgreen[i] += greens[delayindex] * kernel[j];
+//                convolvedred[i] += reds[delayindex] * kernel[j];
+//            }
+//        }
+//        // mix the wet and dry signals based on the drywetmix parameter
+//        outputblues[i] = (blues[i] * (1.0f - drywetmix)) + convolvedblue[i] * drywetmix;
+//        outputgreens[i] = (greens[i] * (1.0f - drywetmix)) + convolvedgreen[i] * drywetmix;
+//        outputreds[i] = (reds[i] * (1.0f - drywetmix)) + convolvedred[i] * drywetmix;
+//        delete[] convolvedblue;
+//        delete[] convolvedgreen;
+//        delete[] convolvedred;
+//    }
+//    delete[] kernel;
+//    
+//    return make_tuple(outputblues, outputgreens, outputreds);
+//}
 
-    // Iterate over the input sound data and apply the delay effect
-    for (int i = 0; i < numSamples; i++)
-    {
-        // Calculate the sample index to use for the delay effect
-        int delayIndex = i - delay;
-
-        // Check if the delay index is within the valid range of the input sound data
-        if (delayIndex < 0)
-        {
-            // If the delay index is outside the range, set it to the first sample in the input data
-            delayIndex = 0;
-        }
-        else if (delayIndex >= numSamples)
-        {
-            // If the delay index is outside the range, set it to the last sample in the input data
-            delayIndex = numSamples - 1;
-        }
-
-        // Apply the delay effect by adding the delayed sample value and feedback to the current sample value 
-        outputBlues[i] = Blues[i] + Blues[delayIndex] + feedbackBlue;
-        outputGreens[i] = Greens[i] + Greens[delayIndex] + feedbackGreen;
-        outputReds[i] = Reds[i] + Reds[delayIndex] + feedbackRed;
-
-        // Update the feedback accumulator
-        feedbackBlue = feedback * outputBlues[i];
-        feedbackGreen = feedback * outputGreens[i];
-        feedbackRed = feedback * outputReds[i];
-    }
-
-    return make_tuple(outputBlues, outputGreens, outputReds);
-}
 
 
 // This function generates the output image from the modified data split into RGB
-Vec3b* generateImagePixels(const short* blues, const short* greens, const short* reds, int numSamples, int imageWidth, int imageHeight)
+Vec3b* generateImagePixels(const double* outputBlues, const double* outputGreens, const double* outputReds, int numSamples, int imageWidth, int imageHeight)
 {
     // Create the output image data array
     Vec3b* pixels = new Vec3b[imageWidth * imageHeight];
@@ -312,13 +399,15 @@ Vec3b* generateImagePixels(const short* blues, const short* greens, const short*
     int pixelIndex = 0;
     for (int i = 0; i < numSamples; i++)
     {
-        // Get the sound sample value at the current position
-        short blue = blues[i];
-        short green = greens[i];
-        short red = reds[i];
+        // Get the color sample value at the current position
+        double blue = outputBlues[i];
+        double green = outputGreens[i];
+        double red = outputReds[i];
 
         // Map the sample value to an image pixel value
-        Vec3b pixel (green, blue, red);
+        Vec3b pixel(green, blue, red);
+
+        //Vec3b pixel(blue, green, red);
 
         // Write the image pixel to the output data array
         pixels[pixelIndex++] = pixel;
@@ -328,10 +417,14 @@ Vec3b* generateImagePixels(const short* blues, const short* greens, const short*
 }
 
 // This function creates an image from the input image data and saves it to the specified file
-void writeImageFile(const string& filename, const Vec3b* pixels, int imageWidth, int imageHeight)
+void writeImageFile(const string& filename, const Vec3b* pixels, int imageWidth, int imageHeight, bool effectDirection)
 {
     // Create the output image from the input image data
     Mat image(imageHeight, imageWidth, CV_8UC3, (void*)pixels);
+
+    //transposes data array back to its original
+    if (effectDirection)
+        transpose(image, image);
 
     // Save the output image to the specified file
     if (!imwrite(filename, image))
@@ -345,61 +438,89 @@ void writeImageFile(const string& filename, const Vec3b* pixels, int imageWidth,
 // To do - let user input values and filename instead of hard coding it
 int main()
 {
- 
+
     string inputImageFilename = "test.jpg";
     string outputImageFilename = "testOut.jpg";
     string outputSoundFilename = "testsound.wav";
 
     // Read the input image file and get the image data
     Mat image = readImage(inputImageFilename);
-    
 
-   //intilize values for splitting the image data in to 3 datta arrays BLUE GREEN RED
+    //change effect direction (from left to right/top to down)
+    bool effectDirection = 0; // 1 or 0
+
+    //transposes data array
+    if (effectDirection)
+        transpose(image, image);
+
+    //intilize values for splitting the image data in to 3 datta arrays BLUE GREEN RED
     int numSamples = image.cols * image.rows;
-    short* blues;
-    short* greens;
-    short* reds;
-    
+    cout << numSamples;
+    double* blues;
+    double* greens;
+    double* reds;
+
     // Split pixel data to BLUE GREEN RED channels, and add values of pixels respectivly 
-    tie (blues, greens, reds) = generateImageSamples(image, numSamples);
+    tie(blues, greens, reds) = generateDataArrays(image, numSamples);
 
     // choose which effect to turn on
     bool echoEffect = 0;
-    bool delayEffect = 0;
-    bool phaserEffect = 0;
+    //bool delayEffect = 0;
+    bool phaserEffect = 1;
+    bool bassBoostEffect = 0;
+    bool pitchShiftEffect = 0;
 
     // Initialize values for  effects
-    int delay = 500; // large numbers
-    int waveformType = 3; // 0 = sin, 1 = saw, 3 = square
-    float feedback = 0;  //from 0 to 1
-    float dryWetMix = 0.5; //from 0 to 1
-    float lowPassCutoff = 0.5; //from 0 to 1
-    float oscillatorRate = 0.7;
-    float frequencyRange = 1;
-    float phaseShiftDepth = 0.9;
-    float boost = 0.9;
-    short* outputBlues = 0;
-    short* outputGreens = 0;
-    short* outputReds = 0;
+    // TODO: Too mutch values could all be replaced with 1 or 2, probably when adding user input lines is best time to do that
+    float from = 0.3; // from what point to apply effect, format as precentage ie 0.02 as 2%, 0 from beggining
+    float to = 0.6; // to what point effect is applied, format as precentage ie 0.02 as 2%, 1 for end
+    int delay = 100; // only used for phaser
+    int waveformType = 3; // 0 = sin, 1 = saw, 3 = square 
+    double feedback = 1;  //from 0 to 2
+    double dryWetMix = 0.5; //from 0 to 1
+    double lowPassCutoff = 0.5; //from 0 to 1
+    double oscillatorRate = 0.7; // 0 to 1 (probably)
+    double frequencyRange = 1; // 0 to 1 (probably)
+    double phaseShiftDepth = 0.9;// 0 to 1 (probably)
+    double boost = 0.4; // 0 to 1 (probably)
+    double decayFactor = 0.9; // 0 to 1 (probably)
+    double pitchShift = 0.2; // best values are from 0 to 0.5, keep in mind you can use 0.0x 
+    double decayTime = 1.5; // best values are from 0 to 1, more then that adds feedback
+    double delayTime = 0.9; // best values are from 0 to 1
+    double* outputBlues = 0;
+    double* outputGreens = 0;
+    double* outputReds = 0;
 
-    tie(outputBlues, outputGreens, outputReds) = applyBassBoost(blues, greens, reds, numSamples, boost, lowPassCutoff);
 
+    //calculate pixel number from values "from" and "to"
+    int effectStart = numSamples * from;
+    int effectEnd = numSamples * to;
+    cout << endl << effectStart << "\t" << effectEnd;
+    int numSamplesEffect = (effectEnd - effectStart) - 2;
+
+    //apply bass boost effect to data
+    if (bassBoostEffect == 1)
+        tie(outputBlues, outputGreens, outputReds) = applyBassBoost(blues, greens, reds, numSamples, boost, lowPassCutoff, effectStart, effectEnd);
+
+    //apply phase effect to data
     if (phaserEffect == 1)
-    tie(outputBlues, outputGreens, outputReds) = applyPhaser(blues, greens, reds, numSamples, delay, feedback, dryWetMix, lowPassCutoff, oscillatorRate, frequencyRange, phaseShiftDepth, waveformType);
+        tie(outputBlues, outputGreens, outputReds) = applyPhaser(blues, greens, reds, numSamples, delay, feedback, dryWetMix, lowPassCutoff, oscillatorRate, frequencyRange, phaseShiftDepth, waveformType, effectStart, effectEnd);
 
+    //echo is actually delay with feedback, set feedback to 0 to get pure delay effect
     //apply echo effect to data
     if (echoEffect == 1)
-    tie(outputBlues, outputGreens, outputReds) = applyEcho(blues, greens, reds, numSamples, delay, feedback, dryWetMix);
-    
-    // Apply the delay effect to data
-    if (delayEffect == 1)
-    tie(outputBlues, outputGreens, outputReds) = applyDelay(blues, greens, reds, numSamples, delay, feedback);
+        tie(outputBlues, outputGreens, outputReds) = applyEcho(blues, greens, reds, numSamplesEffect, feedback, dryWetMix, decayTime, delayTime, effectStart, effectEnd, numSamples);
 
-    // Generate the output image data from the audio data
+    if (pitchShiftEffect == 1)
+        tie(outputBlues, outputGreens, outputReds) = changePitch(blues, greens, reds, numSamples, pitchShift, effectStart, effectEnd);
+
+    //if (delayEffect == 1)
+   // tie(outputBlues, outputGreens, outputReds) = applyEcho2(blues, greens, reds, numSamples, delay, decayFactor, dryWetMix );
+    // Generate the output image data from modified data
     Vec3b* pixels = generateImagePixels(outputBlues, outputGreens, outputReds, numSamples, image.cols, image.rows);
 
     // Write the output image data to the output image file
-    writeImageFile(outputImageFilename, pixels, image.cols, image.rows);
+    writeImageFile(outputImageFilename, pixels, image.cols, image.rows, effectDirection);
 
     return 0;
 }
