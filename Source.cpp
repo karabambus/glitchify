@@ -472,8 +472,8 @@ int main()
 
     // Initialize values for  effects
     // TODO: Too mutch values could all be replaced with 1 or 2, probably when adding user input lines is best time to do that
-    float from = 0.3; // from what point to apply effect, format as precentage ie 0.02 as 2%, 0 from beggining
-    float to = 0.6; // to what point effect is applied, format as precentage ie 0.02 as 2%, 1 for end
+    float start = 0.3; // from what point to apply effect, format as precentage ie 0.02 as 2%, 0 from beggining
+    float end = 0.6; // to what point effect is applied, format as precentage ie 0.02 as 2%, 1 for end
     int delay = 100; // only used for phaser
     int waveformType = 3; // 0 = sin, 1 = saw, 3 = square 
     double feedback = 1;  //from 0 to 2
@@ -493,8 +493,8 @@ int main()
 
 
     //calculate pixel number from values "from" and "to"
-    int effectStart = numSamples * from;
-    int effectEnd = numSamples * to;
+    int effectStart = numSamples * start;
+    int effectEnd = numSamples * end;
     cout << endl << effectStart << "\t" << effectEnd;
     int numSamplesEffect = (effectEnd - effectStart) - 2;
 
