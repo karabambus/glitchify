@@ -1,6 +1,6 @@
 # Glitchify v0.2.0
 
-This program allows the user to create glitch art by applying audio effects (delay, echo, phaser, and bass boost) to an input image.
+This program allows the user to create glitch art by applying audio effects to an input image.
 
 ## Requirements
 - OpenCV 3.2 or higher
